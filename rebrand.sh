@@ -5,7 +5,11 @@
 # version's own rendition sizes) and edits only the files that actually matter.
 #
 # Usage:
-#   ./rebrand.sh <decrypted-twitter.ipa> [output.ipa]
+#   ./rebrand.sh [--no-strings] [--bundle-id ID] [--app-name NAME] <decrypted-twitter.ipa> [output.ipa]
+#
+# --bundle-id / --app-name build a side-by-side test install (distinct id + name)
+# that coexists with your main app — handy for verifying a build under a throwaway
+# bundle id before reinstalling the real one. --no-strings skips the wording rebrand.
 #
 # Requirements: Xcode (actool/assetutil/clang), rsvg-convert, imagemagick (magick),
 # cyan (pyzule-rw, with pillow), and a compiled NeoFreeBird tweak. Point these at your
@@ -21,7 +25,28 @@ TWEAK_DYLIBS="${TWEAK_DYLIBS:-$HERE/tweak/.theos/obj/debug}"
 TWEAK_BUNDLE="${TWEAK_BUNDLE:-$HERE/tweak/layout/Library/Application Support/BHT/BHTwitter.bundle}"
 # ---------------------------------------------------------------------------
 
-IPA_IN="${1:?usage: rebrand.sh <decrypted-twitter.ipa> [output.ipa]}"
+# ---- args -----------------------------------------------------------------
+USAGE='usage: rebrand.sh [--no-strings] [--bundle-id ID] [--app-name NAME] <decrypted-twitter.ipa> [output.ipa]'
+APP_NAME="Twitter"        # cyan -n display name; override for side-by-side test builds
+BUNDLE_ID=""              # cyan -b bundle id; empty = keep the app's original id
+DO_STRINGS=1              # 0 = skip the English Post->Tweet string rebrand
+POS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --no-strings)   DO_STRINGS=0; shift;;
+    --bundle-id)    BUNDLE_ID="${2:?--bundle-id needs a value}"; shift 2;;
+    --bundle-id=*)  BUNDLE_ID="${1#*=}"; shift;;
+    --app-name)     APP_NAME="${2:?--app-name needs a value}"; shift 2;;
+    --app-name=*)   APP_NAME="${1#*=}"; shift;;
+    -h|--help)      echo "$USAGE"; exit 0;;
+    --)             shift; while [ $# -gt 0 ]; do POS+=("$1"); shift; done;;
+    -*)             echo "unknown option: $1" >&2; echo "$USAGE" >&2; exit 1;;
+    *)              POS+=("$1"); shift;;
+  esac
+done
+set -- ${POS[@]+"${POS[@]}"}
+
+IPA_IN="${1:?$USAGE}"
 OUT="${2:-$HERE/NeoFreeBird-Twitter.ipa}"
 say(){ printf "\033[1;36m==>\033[0m %s\n" "$*"; }
 
@@ -74,7 +99,11 @@ json.dump(d,open(p,"w"))
 PY
 
 # 4) English wording rebrand (in place, preserves newer strings)
-say "rebranding English strings"; python3 "$HERE/tools/rebrand_strings.py" "$APP" | tail -1
+if [ "$DO_STRINGS" -eq 1 ]; then
+  say "rebranding English strings"; python3 "$HERE/tools/rebrand_strings.py" "$APP" | tail -1
+else
+  say "skipping English string rebrand (--no-strings)"
+fi
 
 # 5) strip stale seals from the two bundles we edited (resource bundles; safe for sideloading)
 for b in TwitterAppearance_TwitterAppearance.bundle Localization_Localization.bundle; do rm -rf "$APP/$b/_CodeSignature"; done
@@ -83,7 +112,7 @@ for b in TwitterAppearance_TwitterAppearance.bundle Localization_Localization.bu
 say "repackaging + injecting tweak"
 ( cd "$WORK/app" && zip -qr "$WORK/repacked.ipa" Payload )
 rm -f "$OUT"
-cyan -i "$WORK/repacked.ipa" -o "${OUT%.ipa}" --ignore-encrypted -k "$HOME_ICON" -n Twitter \
+cyan -i "$WORK/repacked.ipa" -o "${OUT%.ipa}" --ignore-encrypted -k "$HOME_ICON" -n "$APP_NAME" ${BUNDLE_ID:+-b "$BUNDLE_ID"} \
   -uwf "$TWEAK_DYLIBS/zxPluginsInject.dylib" "$TWEAK_DYLIBS/libbhFLEX.dylib" "$TWEAK_DYLIBS/BHTwitter.dylib" "$TWEAK_BUNDLE"
 
 say "done -> $OUT"
