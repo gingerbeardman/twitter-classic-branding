@@ -1,0 +1,12 @@
+# fetched at runtime — not redistributed here
+sources/nfb/
+sources/home-icon.png
+sources/.bw.*
+
+# generated / build artifacts
+rendered/
+packages/
+tweak/
+*.ipa
+*.tipa
+.DS_Store
